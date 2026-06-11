@@ -38,13 +38,19 @@ brew install jq
 
 ## 🚀 Installation & Setup
 
+**One-Line Installation (Recommended)**:
+```bash
+curl -sL https://raw.githubusercontent.com/es-studio/agy-cli-statusline/main/install.sh | bash
+```
+
+**Manual Installation**:
 1. Clone this repository:
    ```bash
    git clone https://github.com/es-studio/agy-cli-statusline.git
    cd agy-cli-statusline
    ```
 
-2. Run the installer script to automatically copy files, grant execution permissions, and register the script to your `settings.json`:
+2. Run the installer script:
    ```bash
    chmod +x install.sh
    ./install.sh

@@ -25,10 +25,18 @@ if [ $DEPS_OK -eq 1 ]; then
     echo "✅ All dependencies (jq) are satisfied."
 fi
 
-# 3. Copy scripts to ~/.gemini/antigravity-cli/
-echo "Copying scripts to $TARGET_DIR..."
-cp "$SCRIPT_SRC_DIR/statusline.sh" "$TARGET_DIR/statusline.sh"
-cp "$SCRIPT_SRC_DIR/update_quota_cache.sh" "$TARGET_DIR/update_quota_cache.sh"
+# 3. Copy or Download scripts to ~/.gemini/antigravity-cli/
+if [ -f "$SCRIPT_SRC_DIR/statusline.sh" ] && [ -f "$SCRIPT_SRC_DIR/update_quota_cache.sh" ]; then
+    echo "Copying local scripts to $TARGET_DIR..."
+    cp "$SCRIPT_SRC_DIR/statusline.sh" "$TARGET_DIR/statusline.sh"
+    cp "$SCRIPT_SRC_DIR/update_quota_cache.sh" "$TARGET_DIR/update_quota_cache.sh"
+else
+    echo "Downloading scripts from GitHub to $TARGET_DIR..."
+    REPO_RAW_URL="https://raw.githubusercontent.com/es-studio/agy-cli-statusline/main"
+    curl -sL "$REPO_RAW_URL/statusline.sh" -o "$TARGET_DIR/statusline.sh"
+    curl -sL "$REPO_RAW_URL/update_quota_cache.sh" -o "$TARGET_DIR/update_quota_cache.sh"
+fi
+
 chmod +x "$TARGET_DIR/statusline.sh"
 chmod +x "$TARGET_DIR/update_quota_cache.sh"
 
