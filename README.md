@@ -40,7 +40,7 @@ brew install jq
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/your-username/agy-cli-statusline.git
+   git clone https://github.com/es-studio/agy-cli-statusline.git
    cd agy-cli-statusline
    ```
 

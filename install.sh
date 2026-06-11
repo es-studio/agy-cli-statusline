@@ -26,9 +26,11 @@ if [ $DEPS_OK -eq 1 ]; then
 fi
 
 # 3. Copy scripts to ~/.gemini/antigravity-cli/
-echo "Copying statusline.sh to $TARGET_DIR..."
+echo "Copying scripts to $TARGET_DIR..."
 cp "$SCRIPT_SRC_DIR/statusline.sh" "$TARGET_DIR/statusline.sh"
+cp "$SCRIPT_SRC_DIR/update_quota_cache.sh" "$TARGET_DIR/update_quota_cache.sh"
 chmod +x "$TARGET_DIR/statusline.sh"
+chmod +x "$TARGET_DIR/update_quota_cache.sh"
 
 echo "✅ Script copied and execution permissions granted."
 

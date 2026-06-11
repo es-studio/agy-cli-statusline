@@ -1,0 +1,5 @@
+.DS_Store
+quota_cache.txt
+*.exp
+test_*.sh
+scratch_*

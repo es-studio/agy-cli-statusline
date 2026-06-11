@@ -106,96 +106,11 @@ if [ -z "$QUOTA_VAL" ]; then
     QUOTA_VAL="N/A"
 fi
 
-# Run background update in a subshell if needed.
-# Instead of file/directory locking, we check if a sync process with "AGY_QUOTA_CHECK=1" is already running.
-# This makes the refresh trigger idempotent and completely avoids lock cleanup problems.
+# Run background update using the tmux scraper if needed.
+# Instead of file/directory locking, we check if the scraper is already running.
 if [ $TRIGGER_REFRESH -eq 1 ]; then
-    if ! pgrep -f "AGY_QUOTA_CHECK=1" &>/dev/null; then
-        (
-            # Detect agy binary path
-            if command -v agy &>/dev/null; then
-                AGY_BIN=$(command -v agy)
-            elif [ -f "$HOME/.local/bin/agy" ]; then
-                AGY_BIN="$HOME/.local/bin/agy"
-            else
-                AGY_BIN="agy"
-            fi
-            
-            # Fetch usage non-interactively
-            usage_output=$(env AGY_QUOTA_CHECK=1 "$AGY_BIN" -p "/usage" 2>/dev/null)
-            
-            if [ -n "$usage_output" ]; then
-                TEMP_CACHE=$(mktemp)
-                
-                MODELS=(
-                  "Gemini 3.5 Flash (Medium)"
-                  "Gemini 3.5 Flash (High)"
-                  "Gemini 3.5 Flash (Low)"
-                  "Gemini 3.1 Pro (Low)"
-                  "Gemini 3.1 Pro (High)"
-                  "Claude Sonnet 4.6 (Thinking)"
-                  "Claude Opus 4.6 (Thinking)"
-                  "GPT-OSS 120B (Medium)"
-                )
-                
-                IFS=$'\n'
-                lines=($(echo -e "$usage_output"))
-                num_lines=${#lines[@]}
-
-                for model in "${MODELS[@]}"; do
-                    found_pct=""
-                    has_quota_available=0
-                    for ((i=0; i<num_lines; i++)); do
-                        line="${lines[$i]}"
-                        if [[ "$line" == "- $model"* ]]; then
-                            for ((j=1; j<=5; j++)); do
-                                if (( i+j < num_lines )); then
-                                    next_line="${lines[$((i+j))]}"
-                                    if [[ "$next_line" == "- "* ]]; then
-                                        break
-                                    fi
-                                    if [[ "$next_line" == *"Quota available"* ]]; then
-                                        has_quota_available=1
-                                        break
-                                    fi
-                                    if [[ "$next_line" == *"remaining"* ]] && [[ "$next_line" == *"Refreshes in"* ]]; then
-                                        pct=$(echo "$next_line" | grep -oE "[0-9]+%" | head -n 1)
-                                        ref_time=$(echo "$next_line" | sed -n 's/.*Refreshes in //p' | xargs)
-                                        if [ -n "$pct" ] && [ -n "$ref_time" ]; then
-                                            found_pct="${pct}:${ref_time}"
-                                            break
-                                        fi
-                                    fi
-                                    if [[ "$next_line" == *"%"* ]]; then
-                                        pct=$(echo "$next_line" | grep -oE "[0-9]+%" | head -n 1)
-                                        if [ -n "$pct" ] && [ -z "$found_pct" ]; then
-                                            found_pct="$pct"
-                                        fi
-                                    fi
-                                fi
-                            done
-                            break
-                        fi
-                    done
-                    
-                    quota="N/A"
-                    if [ $has_quota_available -eq 1 ]; then
-                        quota="100%"
-                    elif [ -n "$found_pct" ]; then
-                        quota="$found_pct"
-                    fi
-
-                    echo "${model}:${quota}" >> "$TEMP_CACHE"
-                done
-                
-                if [ -s "$TEMP_CACHE" ]; then
-                    mv "$TEMP_CACHE" "$CACHE_FILE"
-                    chmod 600 "$CACHE_FILE" 2>/dev/null || true
-                else
-                    rm -f "$TEMP_CACHE"
-                fi
-            fi
-        ) &>/dev/null &
+    if ! pgrep -f "update_quota_cache.sh" &>/dev/null; then
+        bash "$CACHE_DIR/update_quota_cache.sh" &>/dev/null &
     fi
 fi
 
