@@ -146,29 +146,47 @@ else
 fi
 REM_INFO="${COLOR_REM}ctx:${REMAINING}%${RESET}"
 
-# Quota remaining percentage color (5h)
-QUOTA_INT=$(echo "$QUOTA_VAL" | grep -oE "^[0-9]+")
-if [ -z "$QUOTA_INT" ] || ! [[ "$QUOTA_INT" =~ ^[0-9]+$ ]]; then
-    COLOR_QUOTA=$GREY
-else
-    if [ "$QUOTA_INT" -gt 50 ]; then
-        COLOR_QUOTA=$BOLD_GREEN
-    elif [ "$QUOTA_INT" -gt 20 ]; then
-        COLOR_QUOTA=$YELLOW
-    else
-        COLOR_QUOTA=$RED
-    fi
+# Split QUOTA_VAL into 5h and 7d using the pipe delimiter
+QUOTA_5H="${QUOTA_VAL%%|*}"
+QUOTA_7D="${QUOTA_VAL#*|}"
+if [ "$QUOTA_5H" = "$QUOTA_7D" ]; then
+    QUOTA_7D="N/A"
 fi
 
-# Format display quota nicely (e.g., 60%:50m -> 60% (50m))
-if [[ "$QUOTA_VAL" == *":"* ]]; then
-    pct_part=${QUOTA_VAL%%:*}
-    time_part=${QUOTA_VAL#*:}
-    DISPLAY_QUOTA="${pct_part} (${time_part})"
-else
-    DISPLAY_QUOTA="$QUOTA_VAL"
-fi
-USED_INFO="${COLOR_QUOTA}5h:${DISPLAY_QUOTA}${RESET}"
+format_quota() {
+    local val="$1"
+    local prefix="$2"
+    
+    if [ -z "$val" ] || [ "$val" = "N/A" ]; then
+        echo -n "${GREY}${prefix}:N/A${RESET}"
+        return
+    fi
+    
+    local q_int=$(echo "$val" | grep -oE "^[0-9]+")
+    local color=$GREY
+    if [[ "$q_int" =~ ^[0-9]+$ ]]; then
+        if [ "$q_int" -gt 50 ]; then
+            color=$BOLD_GREEN
+        elif [ "$q_int" -gt 20 ]; then
+            color=$YELLOW
+        else
+            color=$RED
+        fi
+    fi
+    
+    local display="$val"
+    if [[ "$val" == *":"* ]]; then
+        local pct_part="${val%%:*}"
+        local time_part="${val#*:}"
+        display="${pct_part} (${time_part})"
+    fi
+    echo -n "${color}${prefix}:${display}${RESET}"
+}
+
+USED_INFO_7D=$(format_quota "$QUOTA_7D" "7d")
+USED_INFO_5H=$(format_quota "$QUOTA_5H" "5h")
+
+USED_INFO="${USED_INFO_5H}${SEP}${USED_INFO_7D}"
 
 # Agent State color
 if [ "$STATE" = "working" ]; then

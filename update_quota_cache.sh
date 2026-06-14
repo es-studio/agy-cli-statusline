@@ -56,50 +56,75 @@ IFS=$'\n'
 lines=($(cat /tmp/agy_quota_output.txt))
 num_lines=${#lines[@]}
 
-for model in "${MODELS[@]}"; do
-    found_pct=""
-    has_quota_available=0
+parse_group_quota() {
+    local group_name="$1"
+    local quota_5h="N/A"
+    local quota_7d="N/A"
+    local in_group=0
+    local current_limit=""
+    
     for ((i=0; i<num_lines; i++)); do
-        line="${lines[$i]}"
-        if [[ "$line" == "  $model"* ]]; then
-            for ((j=1; j<=5; j++)); do
-                if (( i+j < num_lines )); then
-                    next_line="${lines[$((i+j))]}"
-                    if [[ "$next_line" == "- "* ]]; then
-                        break
-                    fi
-                    if [[ "$next_line" == *"Quota available"* ]]; then
-                        has_quota_available=1
-                        break
-                    fi
-                    if [[ "$next_line" == *"remaining"* ]] && [[ "$next_line" == *"Refreshes in"* ]]; then
-                        pct=$(echo "$next_line" | grep -oE "[0-9]+%" | head -n 1)
-                        ref_time=$(echo "$next_line" | sed -n 's/.*Refreshes in //p' | xargs)
-                        if [ -n "$pct" ] && [ -n "$ref_time" ]; then
-                            found_pct="${pct}:${ref_time}"
-                            break
-                        fi
-                    fi
-                    if [[ "$next_line" == *"%"* ]]; then
-                        pct=$(echo "$next_line" | grep -oE "[0-9]+%" | head -n 1)
-                        if [ -n "$pct" ] && [ -z "$found_pct" ]; then
-                            found_pct="$pct"
-                        fi
+        local line="${lines[$i]}"
+        local trimmed=$(echo "$line" | xargs)
+        
+        if [[ "$trimmed" == "$group_name"* ]]; then
+            in_group=1
+            continue
+        fi
+        
+        if [ $in_group -eq 1 ]; then
+            # Stop if we hit another top-level group or end
+            if [[ "$trimmed" == "GEMINI MODELS" ]] || [[ "$trimmed" == "CLAUDE AND GPT MODELS" ]]; then
+                if [[ "$trimmed" != "$group_name"* ]]; then
+                    break
+                fi
+            fi
+
+            if [[ "$trimmed" == "Weekly Limit" ]]; then
+                current_limit="7d"
+                continue
+            elif [[ "$trimmed" == "Five Hour Limit" ]]; then
+                current_limit="5h"
+                continue
+            fi
+            
+            if [ -n "$current_limit" ]; then
+                local quota_val=""
+                if [[ "$trimmed" == *"Quota available"* ]]; then
+                    quota_val="100%"
+                elif [[ "$trimmed" == *"remaining"* ]] && [[ "$trimmed" == *"Refreshes in"* ]]; then
+                    local pct=$(echo "$trimmed" | grep -oE "[0-9]+%" | head -n 1)
+                    local ref_time=$(echo "$trimmed" | sed -n 's/.*Refreshes in //p' | xargs)
+                    if [ -n "$pct" ] && [ -n "$ref_time" ]; then
+                        quota_val="${pct}:${ref_time}"
+                    elif [ -n "$pct" ]; then
+                        quota_val="$pct"
                     fi
                 fi
-            done
-            break
+                
+                if [ -n "$quota_val" ]; then
+                    if [ "$current_limit" = "7d" ]; then
+                        quota_7d="$quota_val"
+                    elif [ "$current_limit" = "5h" ]; then
+                        quota_5h="$quota_val"
+                    fi
+                    current_limit=""
+                fi
+            fi
         fi
     done
-    
-    quota="N/A"
-    if [ $has_quota_available -eq 1 ]; then
-        quota="100%"
-    elif [ -n "$found_pct" ]; then
-        quota="$found_pct"
-    fi
+    echo "${quota_5h}|${quota_7d}"
+}
 
-    echo "${model}:${quota}" >> "$TEMP_CACHE"
+GEMINI_QUOTAS=$(parse_group_quota "GEMINI MODELS")
+CLAUDE_GPT_QUOTAS=$(parse_group_quota "CLAUDE AND GPT MODELS")
+
+for model in "${MODELS[@]}"; do
+    if [[ "$model" == Gemini* ]]; then
+        echo "${model}:${GEMINI_QUOTAS}" >> "$TEMP_CACHE"
+    else
+        echo "${model}:${CLAUDE_GPT_QUOTAS}" >> "$TEMP_CACHE"
+    fi
 done
 
 if [ -s "$TEMP_CACHE" ]; then
