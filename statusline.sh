@@ -188,18 +188,10 @@ USED_INFO_5H=$(format_quota "$QUOTA_5H" "5h")
 
 USED_INFO="${USED_INFO_5H}${SEP}${USED_INFO_7D}"
 
-# Agent State color
-if [ "$STATE" = "working" ]; then
-    STATE_INFO="${RED}${STATE}${RESET}"
-else
-    STATE_INFO="${GREEN}${STATE}${RESET}"
-fi
-
 # Format others
 TOKENS_INFO="${YELLOW}${TOKENS}${RESET}"
-ARTS_INFO="${MAGENTA}arts:$ARTIFACTS${RESET}"
 PLAN_INFO="${CYAN}${PLAN}${RESET}"
 VERSION_INFO="${GREY}v$VERSION${RESET}"
 
 # 7. Output the formatted string to stdout
-echo -e "${MODEL_DIR_INFO}${GIT_INFO}${SEP}${TOKENS_INFO}${SEP}${REM_INFO}${SEP}${USED_INFO}${SEP}${STATE_INFO}${SEP}${ARTS_INFO}${SEP}${PLAN_INFO}${SEP}${VERSION_INFO}"
+echo -e "${MODEL_DIR_INFO}${GIT_INFO}${SEP}${TOKENS_INFO}${SEP}${REM_INFO}${SEP}${USED_INFO}${SEP}${PLAN_INFO}${SEP}${VERSION_INFO}"
