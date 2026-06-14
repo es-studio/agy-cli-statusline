@@ -6,8 +6,10 @@ A single-script installer package to customize the statusline of `antigravity-cl
 
 ## 📸 Output Structure Example
 
+> **Note**: Fully updated and compatible with **Antigravity CLI v1.0.8** (Supports new grouped `/usage` output format and 7d/5h limits).
+
 ```text
-Gemini 3.5 Flash (High) · agy-cli-statusline · git:main · in:1.2k / out:150 · ctx:88.2% · 5h:60% (50m) · idle · arts:0 · Google AI Pro · v1.0.3
+Gemini 3.1 Pro (High) · agy-cli-statusline · git:main · in:1.2k / out:150 · ctx:88.2% · 5h:98% (4h 53m) · 7d:97% (4d 20h) · Google AI Pro · v1.0.8
 ```
 
 - **Model**: Active model name (Bold Cyan)
@@ -16,8 +18,7 @@ Gemini 3.5 Flash (High) · agy-cli-statusline · git:main · in:1.2k / out:150 �
 - **Tokens**: Accumulated input/output tokens (Yellow, formatted in m/k unit for readability)
 - **ctx**: Remaining context window percentage (Green if > 50%, Yellow if > 20%, Red otherwise)
 - **5h**: Remaining 5-hour quota percentage with refresh time (Green if > 50%, Yellow if > 20%, Red otherwise)
-- **State**: Agent state (Red if working, Green if idle)
-- **arts**: Number of created artifacts (Magenta)
+- **7d**: Remaining 1-week (Weekly) quota percentage with refresh time (Green if > 50%, Yellow if > 20%, Red otherwise)
 - **Plan**: Subscription tier (Cyan)
 - **v**: Antigravity CLI version (Grey)
 
