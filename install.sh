@@ -4,7 +4,7 @@
 TARGET_DIR="$HOME/.gemini/antigravity-cli"
 SCRIPT_SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "=== Antigravity CLI Statusline Installer ==="
+echo "=== Antigravity CLI Statusline Installer (Python Cross-Platform) ==="
 
 # 1. Ensure target directory exists
 if [ ! -d "$TARGET_DIR" ]; then
@@ -13,83 +13,72 @@ if [ ! -d "$TARGET_DIR" ]; then
 fi
 
 # 2. Check dependencies
-echo "Checking dependencies..."
-DEPS_OK=1
-
-if ! command -v jq &>/dev/null; then
-    echo "⚠️ Warning: 'jq' is not installed. Please install 'jq' (e.g. 'brew install jq') for statusline parsing logic."
-    DEPS_OK=0
+echo "Checking python3..."
+PYTHON_BIN="python3"
+if ! command -v python3 &>/dev/null; then
+    if command -v python &>/dev/null; then
+        PYTHON_BIN="python"
+    else
+        echo "❌ Error: 'python3' or 'python' is not installed. Please install Python to run the statusline."
+        exit 1
+    fi
 fi
+echo "✅ Python is available: ($PYTHON_BIN)"
 
-if [ $DEPS_OK -eq 1 ]; then
-    echo "✅ All dependencies (jq) are satisfied."
-fi
+# 3. Copy or Download statusline.py to ~/.gemini/antigravity-cli/scratch/
+SCRATCH_DIR="$TARGET_DIR/scratch"
+mkdir -p "$SCRATCH_DIR"
 
-# 3. Copy or Download scripts to ~/.gemini/antigravity-cli/
-if [ -f "$SCRIPT_SRC_DIR/statusline.sh" ] && [ -f "$SCRIPT_SRC_DIR/update_quota_cache.sh" ]; then
-    echo "Copying local scripts to $TARGET_DIR..."
-    cp "$SCRIPT_SRC_DIR/statusline.sh" "$TARGET_DIR/statusline.sh"
-    cp "$SCRIPT_SRC_DIR/update_quota_cache.sh" "$TARGET_DIR/update_quota_cache.sh"
+if [ -f "$SCRIPT_SRC_DIR/statusline.py" ]; then
+    echo "Copying statusline.py to $SCRATCH_DIR..."
+    cp "$SCRIPT_SRC_DIR/statusline.py" "$SCRATCH_DIR/statusline.py"
 else
-    echo "Downloading scripts from GitHub to $TARGET_DIR..."
+    echo "Downloading statusline.py from GitHub..."
     REPO_RAW_URL="https://raw.githubusercontent.com/es-studio/agy-cli-statusline/main"
-    curl -sL "$REPO_RAW_URL/statusline.sh" -o "$TARGET_DIR/statusline.sh"
-    curl -sL "$REPO_RAW_URL/update_quota_cache.sh" -o "$TARGET_DIR/update_quota_cache.sh"
+    curl -sL "$REPO_RAW_URL/statusline.py" -o "$SCRATCH_DIR/statusline.py"
 fi
 
-chmod +x "$TARGET_DIR/statusline.sh"
-chmod +x "$TARGET_DIR/update_quota_cache.sh"
+echo "✅ Script copied."
 
-echo "✅ Script copied and execution permissions granted."
-
-# 4. Update ~/.gemini/antigravity-cli/settings.json
+# 4. Update settings.json
 SETTINGS_FILE="$TARGET_DIR/settings.json"
 echo "Updating settings.json..."
 
-if [ ! -f "$SETTINGS_FILE" ]; then
-    echo "Creating new settings.json with statusline configurations."
-    echo '{
-  "statusLine": {
-    "type": "command",
-    "command": "'"$TARGET_DIR/statusline.sh"'",
-    "enabled": true
-  }
-}' > "$SETTINGS_FILE"
-else
-    # Python-based safe JSON injector
-    if command -v python3 &>/dev/null; then
-        python3 -c "
-import json, os
-path = os.path.expanduser('~/.gemini/antigravity-cli/settings.json')
-with open(path, 'r') as f:
-    try:
-        data = json.load(f)
-    except Exception:
-        data = {}
-if 'statusLine' not in data:
-    data['statusLine'] = {}
-data['statusLine']['type'] = 'command'
-data['statusLine']['command'] = os.path.expanduser('~/.gemini/antigravity-cli/statusline.sh')
-data['statusLine']['enabled'] = True
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-"
-        echo "✅ statusLine configurations injected successfully into settings.json."
-    else
-        echo "⚠️ Python3 is not available. Please manually update your settings.json at $SETTINGS_FILE with:"
-        echo '{'
-        echo '  "statusLine": {'
-        echo '    "type": "command",'
-        echo '    "command": "'"$TARGET_DIR/statusline.sh"'",'
-        echo '    "enabled": true'
-        echo '  }'
-        echo '}'
-    fi
+# Resolve python execution command
+RESOLVED_PYTHON=$(command -v $PYTHON_BIN)
+# On Windows/Git Bash, translate path style if needed, but python absolute path is best.
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    # Translate path to Windows style for Windows Python
+    RESOLVED_PYTHON=$(cygpath -w "$RESOLVED_PYTHON" 2>/dev/null || echo "python")
 fi
 
-# 5. Trigger first quota sync in background immediately
-echo "Initializing first quota cache sync in background..."
-echo '{}' | bash "$TARGET_DIR/statusline.sh" &>/dev/null &
+PYTHON_CMD="$RESOLVED_PYTHON"
+STATUSLINE_PATH="$SCRATCH_DIR/statusline.py"
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    STATUSLINE_PATH=$(cygpath -w "$STATUSLINE_PATH" 2>/dev/null || echo "$STATUSLINE_PATH")
+    # Convert double backslashes for json escaping
+    STATUSLINE_PATH="${STATUSLINE_PATH//\\//}"
+    PYTHON_CMD="${PYTHON_CMD//\\//}"
+fi
 
+# Run python helper to safely inject config into settings.json
+$PYTHON_BIN -c "
+import json, os
+path = os.path.expanduser('~/.gemini/antigravity-cli/settings.json')
+if os.path.exists(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        try: data = json.load(f)
+        except Exception: data = {}
+else:
+    data = {}
+if 'statusLine' not in data: data['statusLine'] = {}
+data['statusLine']['type'] = 'command'
+data['statusLine']['command'] = '$PYTHON_CMD $STATUSLINE_PATH'
+data['statusLine']['enabled'] = True
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+"
+
+echo "✅ statusLine configurations injected successfully into settings.json."
 echo "🎉 Installation completed successfully!"
 echo "Please restart your Antigravity CLI session to see the new statusline."
