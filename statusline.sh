@@ -178,6 +178,16 @@ format_quota() {
     if [[ "$val" == *":"* ]]; then
         local pct_part="${val%%:*}"
         local time_part="${val#*:}"
+        
+        if [ "$prefix" = "7d" ] && [[ "$time_part" == *"h "* ]]; then
+            local hours=$(echo "$time_part" | grep -oE "^[0-9]+")
+            if [ -n "$hours" ] && [ "$hours" -ge 24 ]; then
+                local days=$((hours / 24))
+                local rem_hours=$((hours % 24))
+                time_part="${days}d ${rem_hours}h"
+            fi
+        fi
+        
         display="${pct_part} (${time_part})"
     fi
     echo -n "${color}${prefix}:${display}${RESET}"
