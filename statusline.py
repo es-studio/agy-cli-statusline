@@ -138,14 +138,8 @@ def find_active_ports():
         ports = [2402, 1776, 2401, 1775]
     return ports
 
-def query_user_status():
-    body = json.dumps({
-        "metadata": {
-            "ideName": "antigravity",
-            "extensionName": "antigravity",
-            "locale": "en",
-        }
-    })
+def query_quota_summary():
+    body = json.dumps({})
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -166,8 +160,8 @@ def query_user_status():
                 else:
                     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1.0)
                 
-                conn.request("POST", "/exa.language_server_pb.LanguageServerService/GetUserStatus", body, headers)
-                res = conn.getresponse()
+                conn.request("POST", "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary", body, headers)
+                res = conn.getcall() if hasattr(conn, "getcall") else conn.getresponse()
                 if res.status == 200:
                     raw = res.read().decode("utf-8", "replace")
                     return json.loads(raw)
@@ -186,12 +180,12 @@ def get_quota_info(model_name):
             pass
     
     cache_age = now - cache.get("timestamp", 0)
-    if cache_age > 15 or not cache.get("userStatus"):
-        status_data = query_user_status()
-        if status_data:
+    if cache_age > 15 or not cache.get("quotaSummary"):
+        summary_data = query_quota_summary()
+        if summary_data:
             cache = {
                 "timestamp": now,
-                "userStatus": status_data
+                "quotaSummary": summary_data
             }
             try:
                 os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
@@ -200,30 +194,47 @@ def get_quota_info(model_name):
             except Exception:
                 pass
                 
-    if not cache.get("userStatus"):
-        return None, None
+    if not cache.get("quotaSummary"):
+        return None, None, None, None
         
-    user_status = cache["userStatus"].get("userStatus", {})
-    cascade = user_status.get("cascadeModelConfigData", {})
+    response = cache["quotaSummary"].get("response", {})
+    groups = response.get("groups", [])
     
-    target_config = None
-    normalized_target = model_name.replace(" ", "").lower()
-    for model in cascade.get("clientModelConfigs", []):
-        label = model.get("label", "")
-        if label.replace(" ", "").lower() in normalized_target or normalized_target in label.replace(" ", "").lower():
-            target_config = model
+    model_name_lower = model_name.lower()
+    is_gemini = "gemini" in model_name_lower
+    
+    target_group = None
+    for group in groups:
+        display_name = group.get("displayName", "").lower()
+        if is_gemini and "gemini" in display_name:
+            target_group = group
+            break
+        elif not is_gemini and ("claude" in display_name or "gpt" in display_name or "3p" in display_name):
+            target_group = group
             break
             
-    if not target_config and cascade.get("clientModelConfigs"):
-        target_config = cascade["clientModelConfigs"][0]
+    if not target_group and groups:
+        target_group = groups[0]
         
-    if target_config:
-        quota_info = target_config.get("quotaInfo", {})
-        rem_frac = quota_info.get("remainingFraction")
-        reset_time = quota_info.get("resetTime")
-        return rem_frac, reset_time
-        
-    return None, None
+    quota_5h_frac = None
+    quota_5h_reset = None
+    quota_7d_frac = None
+    quota_7d_reset = None
+    
+    if target_group:
+        for bucket in target_group.get("buckets", []):
+            window = bucket.get("window", "").lower()
+            rem_frac = bucket.get("remainingFraction")
+            reset_time = bucket.get("resetTime")
+            
+            if window == "5h":
+                quota_5h_frac = rem_frac
+                quota_5h_reset = reset_time
+            elif window == "weekly":
+                quota_7d_frac = rem_frac
+                quota_7d_reset = reset_time
+                
+    return quota_5h_frac, quota_5h_reset, quota_7d_frac, quota_7d_reset
 
 def format_reset_time(reset_time_str):
     if not reset_time_str:
@@ -299,47 +310,31 @@ def main():
         color_rem = RED
     ctx_display = f"{color_rem}ctx:{remaining_pct:.1f}%{RESET}"
     
-    rem_frac, reset_time = get_quota_info(model_name)
+    q5_frac, q5_reset, q7_frac, q7_reset = get_quota_info(model_name)
     
-    quota_5h = "N/A"
-    quota_7d = "N/A"
-    quota_pct = 0
-    reset_in = ""
-    
-    if rem_frac is not None:
-        quota_pct = int(rem_frac * 100)
-        reset_in = format_reset_time(reset_time)
-        
-        is_short = True
-        if reset_time:
-            try:
-                reset = datetime.fromisoformat(reset_time.replace("Z", "+00:00"))
-                diff = (reset - datetime.now(timezone.utc)).total_seconds()
-                if diff > 86400:
-                    is_short = False
-            except Exception:
-                pass
-                
-        if is_short:
-            quota_5h = f"{quota_pct}%"
-            if reset_in:
-                quota_5h += f" ({reset_in})"
-        else:
-            quota_7d = f"{quota_pct}%"
-            if reset_in:
-                quota_7d += f" ({reset_in})"
-                
-    if quota_5h != "N/A":
-        if quota_pct > 50: qc_5h = BOLD_GREEN
-        elif quota_pct > 20: qc_5h = YELLOW
+    if q5_frac is not None:
+        q5_pct = int(q5_frac * 100)
+        q5_reset_in = format_reset_time(q5_reset)
+        quota_5h = f"{q5_pct}%"
+        if q5_reset_in:
+            quota_5h += f" ({q5_reset_in})"
+            
+        if q5_pct > 50: qc_5h = BOLD_GREEN
+        elif q5_pct > 20: qc_5h = YELLOW
         else: qc_5h = RED
         quota_5h_display = f"{qc_5h}5h:{quota_5h}{RESET}"
     else:
         quota_5h_display = f"{GREY}5h:N/A{RESET}"
         
-    if quota_7d != "N/A":
-        if quota_pct > 50: qc_7d = BOLD_GREEN
-        elif quota_pct > 20: qc_7d = YELLOW
+    if q7_frac is not None:
+        q7_pct = int(q7_frac * 100)
+        q7_reset_in = format_reset_time(q7_reset)
+        quota_7d = f"{q7_pct}%"
+        if q7_reset_in:
+            quota_7d += f" ({q7_reset_in})"
+            
+        if q7_pct > 50: qc_7d = BOLD_GREEN
+        elif q7_pct > 20: qc_7d = YELLOW
         else: qc_7d = RED
         quota_7d_display = f"{qc_7d}7d:{quota_7d}{RESET}"
     else:
