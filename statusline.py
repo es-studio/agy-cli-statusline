@@ -36,7 +36,7 @@ def get_git_branch(cwd):
     if not cwd or not os.path.exists(cwd):
         return ""
     try:
-        # Run git command to get current branch
+        # 1. Run git command to get current branch
         res = subprocess.run(
             ["git", "branch", "--show-current"],
             cwd=cwd,
@@ -45,7 +45,36 @@ def get_git_branch(cwd):
             timeout=1,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         )
-        return res.stdout.strip()
+        branch = res.stdout.strip()
+        if not branch:
+            return ""
+            
+        # 2. Check ahead/behind count against upstream
+        res_status = subprocess.run(
+            ["git", "rev-list", "--left-right", "--count", "HEAD...@{u}"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=1,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        )
+        if res_status.returncode == 0:
+            parts = res_status.stdout.strip().split()
+            if len(parts) == 2:
+                try:
+                    ahead = int(parts[0])
+                    behind = int(parts[1])
+                    status_suffix = ""
+                    if ahead > 0 and behind > 0:
+                        status_suffix = f"(↑{ahead}↓{behind})"
+                    elif ahead > 0:
+                        status_suffix = f"(↑{ahead})"
+                    elif behind > 0:
+                        status_suffix = f"(↓{behind})"
+                    return f"{branch}{status_suffix}"
+                except ValueError:
+                    pass
+        return branch
     except Exception:
         return ""
 
