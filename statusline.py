@@ -235,12 +235,14 @@ def get_quota_info(model_name):
     target_group = None
     for group in groups:
         display_name = group.get("displayName", "").lower()
-        if is_gemini and "gemini" in display_name:
-            target_group = group
-            break
-        elif not is_gemini and ("claude" in display_name or "gpt" in display_name or "3p" in display_name):
-            target_group = group
-            break
+        if is_gemini:
+            if "gemini" in display_name:
+                target_group = group
+                break
+        else:
+            if "gemini" not in display_name:
+                target_group = group
+                break
             
     if not target_group and groups:
         target_group = groups[0]
