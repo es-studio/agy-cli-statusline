@@ -20,6 +20,12 @@ YELLOW = "\033[33m"
 BOLD_BLUE = "\033[1;34m"
 RED = "\033[31m"
 MAGENTA = "\033[35m"
+BRIGHT_CYAN = "\033[96m"
+BRIGHT_MAGENTA = "\033[95m"
+BOLD_WHITE = "\033[1;37m"
+BRIGHT_GREEN = "\033[92m"
+BRIGHT_YELLOW = "\033[93m"
+ORANGE = "\033[38;5;208m"
 
 SEP = f" {GREY}·{RESET} "
 
@@ -198,6 +204,64 @@ def query_quota_summary():
                 continue
     return None
 
+def trigger_cache_update():
+    LOCK_FILE = CACHE_FILE + ".lock"
+    if os.path.exists(LOCK_FILE):
+        try:
+            mtime = os.path.getmtime(LOCK_FILE)
+            if time.time() - mtime < 30:
+                return
+        except Exception:
+            pass
+    try:
+        if platform.system() == "Windows":
+            subprocess.Popen(
+                [sys.executable, __file__, "--update-cache"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            )
+        else:
+            subprocess.Popen(
+                [sys.executable, __file__, "--update-cache"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+    except Exception:
+        pass
+
+def run_background_update():
+    LOCK_FILE = CACHE_FILE + ".lock"
+    try:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+        if os.path.exists(LOCK_FILE):
+            try:
+                mtime = os.path.getmtime(LOCK_FILE)
+                if time.time() - mtime < 30:
+                    return
+            except Exception:
+                pass
+        with open(LOCK_FILE, "w") as f:
+            f.write(str(os.getpid()))
+        
+        summary_data = query_quota_summary()
+        if summary_data:
+            cache = {
+                "timestamp": time.time(),
+                "quotaSummary": summary_data
+            }
+            with open(CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False)
+    except Exception:
+        pass
+    finally:
+        try:
+            if os.path.exists(LOCK_FILE):
+                os.remove(LOCK_FILE)
+        except Exception:
+            pass
+
 def get_quota_info(model_name):
     now = time.time()
     cache = {}
@@ -210,19 +274,8 @@ def get_quota_info(model_name):
     
     cache_age = now - cache.get("timestamp", 0)
     if cache_age > 15 or not cache.get("quotaSummary"):
-        summary_data = query_quota_summary()
-        if summary_data:
-            cache = {
-                "timestamp": now,
-                "quotaSummary": summary_data
-            }
-            try:
-                os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
-                with open(CACHE_FILE, "w", encoding="utf-8") as f:
-                    json.dump(cache, f, ensure_ascii=False)
-            except Exception:
-                pass
-                
+        trigger_cache_update()
+        
     if not cache.get("quotaSummary"):
         return None, None, None, None
         
@@ -315,7 +368,7 @@ def main():
     plan = data.get("plan_tier") or "unknown"
     version = data.get("version") or "unknown"
     
-    model_display = f"{BOLD_CYAN}{model_name}{RESET}"
+    model_display = f"{BOLD_WHITE}{model_name}{RESET}"
     
     dir_display = ""
     if cwd:
@@ -328,19 +381,26 @@ def main():
     git_display = ""
     git_branch = get_git_branch(cwd)
     if git_branch:
-        git_display = f"{GREEN}git:{git_branch}{RESET}"
+        git_display = f"{BRIGHT_GREEN}git:{git_branch}{RESET}"
         
-    tokens_display = f"{YELLOW}in:{format_tokens(in_tokens)} / out:{format_tokens(out_tokens)}{RESET}"
+    tokens_display = f"{BRIGHT_YELLOW}in:{format_tokens(in_tokens)} / out:{format_tokens(out_tokens)}{RESET}"
     
-    rem_int = int(remaining_pct)
-    if rem_int > 50:
-        color_rem = BOLD_GREEN
-    elif rem_int > 20:
-        color_rem = YELLOW
+    ctx_display = f"{ORANGE}ctx:{remaining_pct:.1f}%{RESET}"
+    
+    task_count = data.get("task_count", 0)
+    subagents = data.get("subagents", [])
+    running_subagents = sum(1 for s in subagents if s.get("status") == "running")
+    
+    if task_count > 0 or running_subagents > 0:
+        task_parts = []
+        if task_count > 0:
+            task_parts.append(f"tasks:{task_count}")
+        if running_subagents > 0:
+            task_parts.append(f"sub:{running_subagents}")
+        tasks_display = f"{BRIGHT_MAGENTA}{'/'.join(task_parts)}{RESET}"
     else:
-        color_rem = RED
-    ctx_display = f"{color_rem}ctx:{remaining_pct:.1f}%{RESET}"
-    
+        tasks_display = f"{GREY}tasks:0{RESET}"
+        
     q5_frac, q5_reset, q7_frac, q7_reset = get_quota_info(model_name)
     
     if q5_frac is not None:
@@ -350,10 +410,7 @@ def main():
         if q5_reset_in:
             quota_5h += f" ({q5_reset_in})"
             
-        if q5_pct > 50: qc_5h = BOLD_GREEN
-        elif q5_pct > 20: qc_5h = YELLOW
-        else: qc_5h = RED
-        quota_5h_display = f"{qc_5h}5h:{quota_5h}{RESET}"
+        quota_5h_display = f"{BRIGHT_CYAN}5h:{quota_5h}{RESET}"
     else:
         quota_5h_display = f"{GREY}5h:N/A{RESET}"
         
@@ -364,10 +421,7 @@ def main():
         if q7_reset_in:
             quota_7d += f" ({q7_reset_in})"
             
-        if q7_pct > 50: qc_7d = BOLD_GREEN
-        elif q7_pct > 20: qc_7d = YELLOW
-        else: qc_7d = RED
-        quota_7d_display = f"{qc_7d}7d:{quota_7d}{RESET}"
+        quota_7d_display = f"{BRIGHT_CYAN}7d:{quota_7d}{RESET}"
     else:
         quota_7d_display = f"{GREY}7d:N/A{RESET}"
         
@@ -379,12 +433,16 @@ def main():
         parts.append(git_display)
     parts.append(tokens_display)
     parts.append(ctx_display)
+    parts.append(tasks_display)
     parts.append(quota_5h_display)
     parts.append(quota_7d_display)
-    parts.append(f"{CYAN}{plan}{RESET}")
+    parts.append(f"{GREY}{plan}{RESET}")
     parts.append(f"{GREY}v{version}{RESET}")
     
     print(SEP.join(parts), flush=True)
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "--update-cache":
+        run_background_update()
+    else:
+        main()
