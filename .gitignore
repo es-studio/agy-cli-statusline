@@ -3,3 +3,7 @@ quota_cache.txt
 *.exp
 test_*.sh
 scratch_*
+__pycache__/
+*.pyc
+*.lock
+quota_cache.json

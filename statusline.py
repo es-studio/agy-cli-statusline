@@ -262,7 +262,25 @@ def run_background_update():
         except Exception:
             pass
 
-def get_quota_info(model_name):
+def get_quota_info(data, model_name):
+    # 1. Primary: Direct real-time quota passed by agy via stdin JSON
+    quota = data.get("quota")
+    if quota and isinstance(quota, dict):
+        model_name_lower = model_name.lower()
+        is_gemini = "gemini" in model_name_lower
+        b5 = quota.get("gemini-5h") if is_gemini else quota.get("3p-5h")
+        b7 = quota.get("gemini-weekly") if is_gemini else quota.get("3p-weekly")
+        
+        if b5 or b7:
+            q5_frac = b5.get("remaining_fraction") if b5 else None
+            q5_reset = b5.get("reset_in_seconds") if (b5 and b5.get("reset_in_seconds") is not None) else (b5.get("reset_time") if b5 else None)
+            
+            q7_frac = b7.get("remaining_fraction") if b7 else None
+            q7_reset = b7.get("reset_in_seconds") if (b7 and b7.get("reset_in_seconds") is not None) else (b7.get("reset_time") if b7 else None)
+            
+            return q5_frac, q5_reset, q7_frac, q7_reset
+
+    # 2. Fallback: Read from cache file if stdin did not contain quota
     now = time.time()
     cache = {}
     if os.path.exists(CACHE_FILE):
@@ -320,12 +338,15 @@ def get_quota_info(model_name):
                 
     return quota_5h_frac, quota_5h_reset, quota_7d_frac, quota_7d_reset
 
-def format_reset_time(reset_time_str):
-    if not reset_time_str:
+def format_reset_time(reset_time):
+    if not reset_time:
         return ""
     try:
-        reset = datetime.fromisoformat(reset_time_str.replace("Z", "+00:00"))
-        diff = int((reset - datetime.now(timezone.utc)).total_seconds())
+        if isinstance(reset_time, (int, float)):
+            diff = int(reset_time)
+        else:
+            reset = datetime.fromisoformat(str(reset_time).replace("Z", "+00:00"))
+            diff = int((reset - datetime.now(timezone.utc)).total_seconds())
         if diff <= 0:
             return "now"
         minutes = (diff + 59) // 60
@@ -401,7 +422,7 @@ def main():
     else:
         tasks_display = f"{GREY}tasks:0{RESET}"
         
-    q5_frac, q5_reset, q7_frac, q7_reset = get_quota_info(model_name)
+    q5_frac, q5_reset, q7_frac, q7_reset = get_quota_info(data, model_name)
     
     if q5_frac is not None:
         q5_pct = int(q5_frac * 100)
