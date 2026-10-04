@@ -200,6 +200,7 @@ def query_quota_summary():
                 if res.status == 200:
                     raw = res.read().decode("utf-8", "replace")
                     return json.loads(raw)
+                break
             except Exception:
                 continue
     return None
