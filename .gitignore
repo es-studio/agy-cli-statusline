@@ -1,9 +1,12 @@
 .DS_Store
-quota_cache.txt
-*.exp
-test_*.sh
-scratch_*
 __pycache__/
 *.pyc
+*.pyo
 *.lock
+*.tmp
+*.new
+quota_cache.txt
 quota_cache.json
+.statusline_update.json
+scratch_*
+test_*

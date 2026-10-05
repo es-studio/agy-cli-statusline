@@ -1,70 +1,114 @@
-# Antigravity CLI Statusline Customization
+# Antigravity CLI Statusline (agy-cli-statusline)
 
-A single-script installer package to customize the statusline of `antigravity-cli` (`agy`) with rich metadata and enable asynchronous API usage quota caching.
+A lightweight, zero-dependency, and cross-platform statusline customization for **Google Antigravity CLI (`agy`)**.
+
+Featuring real-time token counts, context window tracking, git status, multi-tier quotas (5-hour & 7-day limits), background task counts, and seamless **non-blocking automatic updates**.
 
 ---
 
 ## 📸 Output Structure Example
 
-> **Note**: Fully updated and compatible with **Antigravity CLI v1.0.8** (Supports new grouped `/usage` output format and 7d/5h limits).
+Compatible with **Antigravity CLI v1.2+** and modern stdin payload schema.
 
 ```text
-Gemini 3.1 Pro (High) · agy-cli-statusline · git:main · in:1.2k / out:150 · ctx:88.2% · 5h:98% (4h 53m) · 7d:97% (4d 20h) · Google AI Pro · v1.0.8
+Gemini 3.8 Flash (High) · my-project · git:main* · in:12.5k / out:3.2k · ctx:97.4% · sub:1 · 5h:85% (4h 15m) · 7d:92% (5d) · Google AI Pro · v1.2.17
 ```
 
-- **Model**: Active model name (Bold Cyan)
-- **Directory**: Last directory name of current CWD (Bold Blue)
-- **Git**: Current Git branch name if in a Git repository (Green)
-- **Tokens**: Accumulated input/output tokens (Yellow, formatted in m/k unit for readability)
-- **ctx**: Remaining context window percentage (Green if > 50%, Yellow if > 20%, Red otherwise)
-- **5h**: Remaining 5-hour quota percentage with refresh time (Green if > 50%, Yellow if > 20%, Red otherwise)
-- **7d**: Remaining 1-week (Weekly) quota percentage with refresh time (Green if > 50%, Yellow if > 20%, Red otherwise)
-- **Plan**: Subscription tier (Cyan)
+- **Model**: Active model display name (Bold White)
+- **Directory**: Current working directory basename (Bold Blue)
+- **Git**: Branch name and dirty indicator `*` directly from `agy` native VCS detection (Green)
+- **Tokens**: Accumulated input and output tokens formatted in `m` / `k` units (Yellow)
+- **ctx**: Remaining context window percentage (Orange)
+- **Tasks / Subagents**: Real-time count of background tasks and running subagents (Magenta)
+- **5h**: Remaining 5-hour quota percentage and reset countdown (Bright Cyan)
+- **7d**: Remaining weekly quota percentage and reset countdown (Bright Cyan)
+- **Plan**: Subscription tier (Grey)
 - **v**: Antigravity CLI version (Grey)
 
 ---
 
 ## 🛠️ Prerequisites
 
-The following tool must be installed on your system:
-
-1. **`jq`**: For parsing JSON metadata payload
-
-For macOS, you can install it via Homebrew:
-```bash
-brew install jq
-```
+- **Python 3.8+** (Standard library only; zero external dependencies or `pip` packages required)
 
 ---
 
 ## 🚀 Installation & Setup
 
-**One-Line Installation (Recommended)**:
+### Windows (PowerShell)
+Run the following one-liner in PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/es-studio/agy-cli-statusline/main/install.ps1 | iex
+```
+
+### macOS & Linux (Bash)
+Run the following one-liner in your terminal:
 ```bash
 curl -sL https://raw.githubusercontent.com/es-studio/agy-cli-statusline/main/install.sh | bash
 ```
 
-**Manual Installation**:
+### Manual Installation
 1. Clone this repository:
    ```bash
    git clone https://github.com/es-studio/agy-cli-statusline.git
    cd agy-cli-statusline
    ```
-
-2. Run the installer script:
-   ```bash
-   chmod +x install.sh
-   ./install.sh
+2. Copy `statusline.py` into your Antigravity scratch directory:
+   - **Windows**: `~/.gemini/antigravity-cli/scratch/statusline.py`
+   - **Linux / macOS**: `~/.gemini/antigravity-cli/scratch/statusline.py`
+3. Configure `~/.gemini/antigravity-cli/settings.json`:
+   ```json
+   {
+     "statusLine": {
+       "type": "command",
+       "command": "python ~/.gemini/antigravity-cli/scratch/statusline.py",
+       "enabled": true
+     }
+   }
    ```
-
-3. Restart your `agy` session to see the new statusline in action.
+4. Restart your `agy` session to see your new statusline.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🔄 Automatic & Manual Updates
 
-### `statusline.sh` (Lockless & Idempotent Architecture)
-- It processes JSON metadata passed from the `agy` CLI via stdin, formats and colorizes it, and outputs the result to stdout.
-- **Asynchronous Quota Caching**: To prevent rendering lag, the 5-hour quota (`/usage`) is read instantly from a local cache file (`quota_cache.txt`).
-- **Self-Refreshing**: If the cache file does not exist or is older than 30 seconds, `statusline.sh` spawns an asynchronous subshell in the background. This subshell runs `agy -p "/usage"` to update the cache file. 
-- **Lockless Idempotency**: Instead of using lock files/directories, the script checks if a sync process (`AGY_QUOTA_CHECK=1`) is already active using `pgrep`. If active, it skips launching another subshell. This completely eliminates stale lock issues and guarantees idempotent execution.
+### Seamless Background Auto-Update
+- **Zero Terminal Latency**: Statusline rendering is never blocked by network calls. Update checks run in a detached background process with zero window popup (`DETACHED_PROCESS`).
+- **Throttled Checks**: By default, checks run once every 12 hours.
+- **Safety Checks**: Downloads are validated for Python syntax integrity (`compile()`) and compared using semantic versioning to prevent accidental downgrades or corrupted files.
+- **Atomic Replace**: Files are replaced atomically (`os.replace`) to ensure crash resistance.
+
+### Manual CLI Commands
+You can also inspect and trigger updates directly:
+
+```bash
+# Check installed statusline version
+python statusline.py --version
+
+# Check if a new version is available on GitHub
+python statusline.py --check-update
+
+# Manually trigger immediate update
+python statusline.py --update
+
+# Show CLI options and environment variable configuration
+python statusline.py --help
+```
+
+### Environment Configuration
+| Environment Variable | Default | Description |
+| :--- | :--- | :--- |
+| `AGY_STATUSLINE_AUTO_UPDATE` | `1` | Set to `0` to disable background auto-updates |
+| `AGY_STATUSLINE_CHECK_INTERVAL` | `43200` (12h) | Interval in seconds between auto-update checks |
+| `AGY_STATUSLINE_URL` | *main branch raw URL* | Custom source URL for updates |
+
+---
+
+## 🏗️ Architecture & Philosophy
+
+1. **Native Ingestion over Port Probing**:
+   Previous approaches scanned local TCP ports to query internal RPC endpoints, which could trigger Go TLS handshake errors. `agy-cli-statusline v2.1+` reads quota, token metrics, and VCS states directly from `agy`'s native stdin JSON payload.
+2. **Sub-50ms Execution**:
+   Zero child process spawning (`git`, `curl`, `jq`) during statusline rendering. All parsing is done in-memory in pure Python.
+3. **Resilient Self-Management**:
+   Self-contained update management without external package managers or daemons.
