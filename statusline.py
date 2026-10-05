@@ -1,35 +1,20 @@
 import sys
 import json
 import os
-import time
-import socket
-import http.client
-import ssl
-import subprocess
-import platform
 from datetime import datetime, timezone
 
 # ANSI Color Codes
 RESET = "\033[0m"
 GREY = "\033[90m"
-CYAN = "\033[36m"
-BOLD_CYAN = "\033[1;36m"
-GREEN = "\033[32m"
-BOLD_GREEN = "\033[1;32m"
-YELLOW = "\033[33m"
 BOLD_BLUE = "\033[1;34m"
-RED = "\033[31m"
-MAGENTA = "\033[35m"
-BRIGHT_CYAN = "\033[96m"
-BRIGHT_MAGENTA = "\033[95m"
 BOLD_WHITE = "\033[1;37m"
+BRIGHT_CYAN = "\033[96m"
 BRIGHT_GREEN = "\033[92m"
+BRIGHT_MAGENTA = "\033[95m"
 BRIGHT_YELLOW = "\033[93m"
 ORANGE = "\033[38;5;208m"
 
 SEP = f" {GREY}·{RESET} "
-
-CACHE_FILE = os.path.join(os.path.expanduser("~"), ".gemini", "antigravity-cli", "scratch", "quota_cache.json")
 
 def format_tokens(n):
     if n >= 1000000:
@@ -38,417 +23,144 @@ def format_tokens(n):
         return f"{n / 1000:.1f}k"
     return str(n)
 
-def get_git_branch(cwd):
-    if not cwd or not os.path.exists(cwd):
+def format_reset(bucket):
+    if not bucket or not isinstance(bucket, dict):
         return ""
-    try:
-        # 1. Run git command to get current branch
-        res = subprocess.run(
-            ["git", "branch", "--show-current"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=1,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        )
-        branch = res.stdout.strip()
-        if not branch:
-            return ""
-            
-        # 2. Check ahead/behind count against upstream
-        res_status = subprocess.run(
-            ["git", "rev-list", "--left-right", "--count", "HEAD...@{u}"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=1,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        )
-        if res_status.returncode == 0:
-            parts = res_status.stdout.strip().split()
-            if len(parts) == 2:
-                try:
-                    ahead = int(parts[0])
-                    behind = int(parts[1])
-                    status_suffix = ""
-                    if ahead > 0 and behind > 0:
-                        status_suffix = f"(↑{ahead}↓{behind})"
-                    elif ahead > 0:
-                        status_suffix = f"(↑{ahead})"
-                    elif behind > 0:
-                        status_suffix = f"(↓{behind})"
-                    return f"{branch}{status_suffix}"
-                except ValueError:
-                    pass
-        return branch
-    except Exception:
-        return ""
-
-def find_active_ports():
-    current_os = platform.system()
-    ports = []
-    
-    # 1. Windows environment dynamic port discovery
-    if current_os == "Windows":
-        pids = []
+    sec = bucket.get("reset_in_seconds")
+    if sec is not None:
         try:
-            res = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq agy.exe", "/FO", "CSV", "/NH"],
-                capture_output=True,
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-            for line in res.stdout.splitlines():
-                parts = line.split(",")
-                if len(parts) > 1:
-                    pid = parts[1].strip('"')
-                    if pid.isdigit():
-                        pids.append(int(pid))
+            diff = int(sec)
         except Exception:
-            pass
-
-        if pids:
-            try:
-                res = subprocess.run(
-                    ["netstat", "-ano"],
-                    capture_output=True,
-                    text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                )
-                for line in res.stdout.splitlines():
-                    if "LISTENING" in line:
-                        parts = line.split()
-                        if len(parts) >= 5:
-                            local_addr = parts[1]
-                            try:
-                                pid = int(parts[4])
-                            except ValueError:
-                                continue
-                            if pid in pids:
-                                port_str = local_addr.split(":")[-1]
-                                if port_str.isdigit():
-                                    port = int(port_str)
-                                    if port not in ports:
-                                        ports.append(port)
-            except Exception:
-                pass
-
-    # 2. macOS / Linux environment dynamic port discovery
+            diff = 0
     else:
-        pids = []
+        rt = bucket.get("reset_time")
+        if not rt:
+            return ""
         try:
-            res = subprocess.run(["pgrep", "-f", "agy"], capture_output=True, text=True)
-            pids = [int(p) for p in res.stdout.split() if p.isdigit()]
+            reset_dt = datetime.fromisoformat(str(rt).replace("Z", "+00:00"))
+            diff = int((reset_dt - datetime.now(timezone.utc)).total_seconds())
         except Exception:
-            try:
-                res = subprocess.run(["ps", "-A"], capture_output=True, text=True)
-                for line in res.stdout.splitlines():
-                    if "agy" in line.lower():
-                        parts = line.strip().split()
-                        if parts and parts[0].isdigit():
-                            pids.append(int(parts[0]))
-            except Exception:
-                pass
-                
-        if pids:
-            for pid in pids:
-                try:
-                    res = subprocess.run(
-                        ["lsof", "-nP", "-a", "-p", str(pid), "-iTCP", "-sTCP:LISTEN"],
-                        capture_output=True,
-                        text=True
-                    )
-                    for line in res.stdout.splitlines():
-                        import re
-                        match = re.search(r":(\d+)\s+\(LISTEN\)", line)
-                        if match:
-                            port = int(match.group(1))
-                            if port not in ports:
-                                ports.append(port)
-                except Exception:
-                    pass
+            return ""
 
-    # 3. Fallback default ports
-    if not ports:
-        ports = [2402, 1776, 2401, 1775]
-    return ports
+    if diff <= 0:
+        return ""
+    minutes = (diff + 59) // 60
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, mins = divmod(minutes, 60)
+    if hours >= 24:
+        days = hours // 24
+        rem_h = hours % 24
+        return f"{days}d {rem_h}h" if rem_h else f"{days}d"
+    return f"{hours}h {mins}m" if mins else f"{hours}h"
 
-def query_quota_summary():
-    body = json.dumps({})
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Connect-Protocol-Version": "1",
-    }
-    
-    ports = find_active_ports()
-    for port in ports:
-        for use_https in (True, False):
-            try:
-                if use_https:
-                    conn = http.client.HTTPSConnection(
-                        "127.0.0.1",
-                        port,
-                        timeout=1.0,
-                        context=ssl._create_unverified_context(),
-                    )
-                else:
-                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=1.0)
-                
-                conn.request("POST", "/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary", body, headers)
-                res = conn.getcall() if hasattr(conn, "getcall") else conn.getresponse()
-                if res.status == 200:
-                    raw = res.read().decode("utf-8", "replace")
-                    return json.loads(raw)
-                break
-            except Exception:
-                continue
+def get_quota_bucket(quota, window_type, is_gemini):
+    if not quota or not isinstance(quota, dict):
+        return None
+    primary_key = f"{'gemini' if is_gemini else '3p'}-{window_type}"
+    if primary_key in quota:
+        return quota[primary_key]
+    fallback_key = f"{'3p' if is_gemini else 'gemini'}-{window_type}"
+    if fallback_key in quota:
+        return quota[fallback_key]
+    for k, v in quota.items():
+        if k.endswith(f"-{window_type}") or k == window_type:
+            return v
     return None
 
-def trigger_cache_update():
-    LOCK_FILE = CACHE_FILE + ".lock"
-    if os.path.exists(LOCK_FILE):
-        try:
-            mtime = os.path.getmtime(LOCK_FILE)
-            if time.time() - mtime < 30:
-                return
-        except Exception:
-            pass
-    try:
-        if platform.system() == "Windows":
-            subprocess.Popen(
-                [sys.executable, __file__, "--update-cache"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
-            )
-        else:
-            subprocess.Popen(
-                [sys.executable, __file__, "--update-cache"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True
-            )
-    except Exception:
-        pass
-
-def run_background_update():
-    LOCK_FILE = CACHE_FILE + ".lock"
-    try:
-        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
-        if os.path.exists(LOCK_FILE):
-            try:
-                mtime = os.path.getmtime(LOCK_FILE)
-                if time.time() - mtime < 30:
-                    return
-            except Exception:
-                pass
-        with open(LOCK_FILE, "w") as f:
-            f.write(str(os.getpid()))
-        
-        summary_data = query_quota_summary()
-        if summary_data:
-            cache = {
-                "timestamp": time.time(),
-                "quotaSummary": summary_data
-            }
-            with open(CACHE_FILE, "w", encoding="utf-8") as f:
-                json.dump(cache, f, ensure_ascii=False)
-    except Exception:
-        pass
-    finally:
-        try:
-            if os.path.exists(LOCK_FILE):
-                os.remove(LOCK_FILE)
-        except Exception:
-            pass
-
-def get_quota_info(data, model_name):
-    # 1. Primary: Direct real-time quota passed by agy via stdin JSON
-    quota = data.get("quota")
-    if quota and isinstance(quota, dict):
-        model_name_lower = model_name.lower()
-        is_gemini = "gemini" in model_name_lower
-        b5 = quota.get("gemini-5h") if is_gemini else quota.get("3p-5h")
-        b7 = quota.get("gemini-weekly") if is_gemini else quota.get("3p-weekly")
-        
-        if b5 or b7:
-            q5_frac = b5.get("remaining_fraction") if b5 else None
-            q5_reset = b5.get("reset_in_seconds") if (b5 and b5.get("reset_in_seconds") is not None) else (b5.get("reset_time") if b5 else None)
-            
-            q7_frac = b7.get("remaining_fraction") if b7 else None
-            q7_reset = b7.get("reset_in_seconds") if (b7 and b7.get("reset_in_seconds") is not None) else (b7.get("reset_time") if b7 else None)
-            
-            return q5_frac, q5_reset, q7_frac, q7_reset
-
-    # 2. Fallback: Read from cache file if stdin did not contain quota
-    now = time.time()
-    cache = {}
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                cache = json.load(f)
-        except Exception:
-            pass
-    
-    cache_age = now - cache.get("timestamp", 0)
-    if cache_age > 15 or not cache.get("quotaSummary"):
-        trigger_cache_update()
-        
-    if not cache.get("quotaSummary"):
-        return None, None, None, None
-        
-    response = cache["quotaSummary"].get("response", {})
-    groups = response.get("groups", [])
-    
-    model_name_lower = model_name.lower()
-    is_gemini = "gemini" in model_name_lower
-    
-    target_group = None
-    for group in groups:
-        display_name = group.get("displayName", "").lower()
-        if is_gemini:
-            if "gemini" in display_name:
-                target_group = group
-                break
-        else:
-            if "gemini" not in display_name:
-                target_group = group
-                break
-            
-    if not target_group and groups:
-        target_group = groups[0]
-        
-    quota_5h_frac = None
-    quota_5h_reset = None
-    quota_7d_frac = None
-    quota_7d_reset = None
-    
-    if target_group:
-        for bucket in target_group.get("buckets", []):
-            window = bucket.get("window", "").lower()
-            rem_frac = bucket.get("remainingFraction")
-            reset_time = bucket.get("resetTime")
-            
-            if window == "5h":
-                quota_5h_frac = rem_frac
-                quota_5h_reset = reset_time
-            elif window == "weekly":
-                quota_7d_frac = rem_frac
-                quota_7d_reset = reset_time
-                
-    return quota_5h_frac, quota_5h_reset, quota_7d_frac, quota_7d_reset
-
-def format_reset_time(reset_time):
-    if not reset_time:
-        return ""
-    try:
-        if isinstance(reset_time, (int, float)):
-            diff = int(reset_time)
-        else:
-            reset = datetime.fromisoformat(str(reset_time).replace("Z", "+00:00"))
-            diff = int((reset - datetime.now(timezone.utc)).total_seconds())
-        if diff <= 0:
-            return "now"
-        minutes = (diff + 59) // 60
-        if minutes < 60:
-            return f"{minutes}m"
-        hours, mins = divmod(minutes, 60)
-        if hours >= 24:
-            days = hours // 24
-            rem_hours = hours % 24
-            return f"{days}d {rem_hours}h" if rem_hours else f"{days}d"
-        return f"{hours}h {mins}m" if mins else f"{hours}h"
-    except Exception:
-        return ""
+def format_quota_display(bucket, label):
+    if not bucket or not isinstance(bucket, dict):
+        return f"{GREY}{label}:N/A{RESET}"
+    frac = bucket.get("remaining_fraction")
+    if frac is None:
+        return f"{GREY}{label}:N/A{RESET}"
+    pct = int(frac * 100)
+    reset_str = format_reset(bucket)
+    if reset_str:
+        return f"{BRIGHT_CYAN}{label}:{pct}% ({reset_str}){RESET}"
+    return f"{BRIGHT_CYAN}{label}:{pct}%{RESET}"
 
 def main():
     try:
-        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
-        
+
     try:
-        input_data = sys.stdin.read()
-        if not input_data.strip():
+        raw_input = sys.stdin.read()
+        if not raw_input.strip():
             return
-        data = json.loads(input_data)
+        data = json.loads(raw_input)
     except Exception:
         return
 
-    model_data = data.get("model", {})
-    if isinstance(model_data, dict):
-        model_name = model_data.get("display_name") or model_data.get("id") or "Unknown"
+    # 1. Model Name
+    model_obj = data.get("model", {})
+    if isinstance(model_obj, dict):
+        model_name = model_obj.get("display_name") or model_obj.get("id") or "Unknown"
     else:
-        model_name = str(model_data) or "Unknown"
-        
-    cw = data.get("context_window", {})
-    remaining_pct = float(cw.get("remaining_percentage", 100.0))
-    in_tokens = int(cw.get("total_input_tokens", 0))
-    out_tokens = int(cw.get("total_output_tokens", 0))
-    cwd = data.get("cwd", "")
-    plan = data.get("plan_tier") or "unknown"
-    version = data.get("version") or "unknown"
-    
+        model_name = str(model_obj) or "Unknown"
     model_display = f"{BOLD_WHITE}{model_name}{RESET}"
-    
+
+    # 2. Directory Name
+    cwd = data.get("cwd", "")
     dir_display = ""
     if cwd:
-        basename = os.path.basename(cwd.rstrip("/\\"))
-        if not basename:
-            basename = cwd
-        if basename:
-            dir_display = f"{BOLD_BLUE}{basename}{RESET}"
-        
+        base = os.path.basename(cwd.rstrip("/\\"))
+        if not base:
+            base = cwd
+        if base:
+            dir_display = f"{BOLD_BLUE}{base}{RESET}"
+
+    # 3. VCS (Git Branch & Status from agy native detection)
     git_display = ""
-    git_branch = get_git_branch(cwd)
-    if git_branch:
-        git_display = f"{BRIGHT_GREEN}git:{git_branch}{RESET}"
-        
+    vcs = data.get("vcs") or {}
+    if isinstance(vcs, dict):
+        branch = vcs.get("branch", "")
+        if branch:
+            if vcs.get("dirty"):
+                branch = f"{branch}*"
+            git_display = f"{BRIGHT_GREEN}git:{branch}{RESET}"
+
+    # 4. Context Window & Tokens
+    cw = data.get("context_window") or {}
+    in_tokens = int(cw.get("total_input_tokens", 0))
+    out_tokens = int(cw.get("total_output_tokens", 0))
+    rem_pct = float(cw.get("remaining_percentage", 100.0))
     tokens_display = f"{BRIGHT_YELLOW}in:{format_tokens(in_tokens)} / out:{format_tokens(out_tokens)}{RESET}"
-    
-    ctx_display = f"{ORANGE}ctx:{remaining_pct:.1f}%{RESET}"
-    
-    task_count = data.get("task_count", 0)
-    subagents = data.get("subagents", [])
-    running_subagents = sum(1 for s in subagents if s.get("status") == "running")
-    
-    if task_count > 0 or running_subagents > 0:
+    ctx_display = f"{ORANGE}ctx:{rem_pct:.1f}%{RESET}"
+
+    # 5. Background Tasks & Subagents
+    task_count = int(data.get("task_count", 0))
+    subagents = data.get("subagents") or []
+    running_subs = sum(1 for s in subagents if isinstance(s, dict) and s.get("status") == "running")
+
+    if task_count > 0 or running_subs > 0:
         task_parts = []
         if task_count > 0:
             task_parts.append(f"tasks:{task_count}")
-        if running_subagents > 0:
-            task_parts.append(f"sub:{running_subagents}")
+        if running_subs > 0:
+            task_parts.append(f"sub:{running_subs}")
         tasks_display = f"{BRIGHT_MAGENTA}{'/'.join(task_parts)}{RESET}"
     else:
         tasks_display = f"{GREY}tasks:0{RESET}"
-        
-    q5_frac, q5_reset, q7_frac, q7_reset = get_quota_info(data, model_name)
-    
-    if q5_frac is not None:
-        q5_pct = int(q5_frac * 100)
-        q5_reset_in = format_reset_time(q5_reset)
-        quota_5h = f"{q5_pct}%"
-        if q5_reset_in:
-            quota_5h += f" ({q5_reset_in})"
-            
-        quota_5h_display = f"{BRIGHT_CYAN}5h:{quota_5h}{RESET}"
-    else:
-        quota_5h_display = f"{GREY}5h:N/A{RESET}"
-        
-    if q7_frac is not None:
-        q7_pct = int(q7_frac * 100)
-        q7_reset_in = format_reset_time(q7_reset)
-        quota_7d = f"{q7_pct}%"
-        if q7_reset_in:
-            quota_7d += f" ({q7_reset_in})"
-            
-        quota_7d_display = f"{BRIGHT_CYAN}7d:{quota_7d}{RESET}"
-    else:
-        quota_7d_display = f"{GREY}7d:N/A{RESET}"
-        
-    parts = []
-    parts.append(model_display)
+
+    # 6. Real-time Quota (directly from agy native stdin payload)
+    quota = data.get("quota") or {}
+    is_gemini = "gemini" in model_name.lower()
+    b5 = get_quota_bucket(quota, "5h", is_gemini)
+    b7 = get_quota_bucket(quota, "weekly", is_gemini)
+    q5_display = format_quota_display(b5, "5h")
+    q7_display = format_quota_display(b7, "7d")
+
+    # 7. Plan Tier & Version
+    plan = data.get("plan_tier") or "unknown"
+    version = data.get("version") or ""
+    plan_display = f"{GREY}{plan}{RESET}"
+    ver_display = f"{GREY}v{version}{RESET}" if version else ""
+
+    # Assemble line
+    parts = [model_display]
     if dir_display:
         parts.append(dir_display)
     if git_display:
@@ -456,15 +168,13 @@ def main():
     parts.append(tokens_display)
     parts.append(ctx_display)
     parts.append(tasks_display)
-    parts.append(quota_5h_display)
-    parts.append(quota_7d_display)
-    parts.append(f"{GREY}{plan}{RESET}")
-    parts.append(f"{GREY}v{version}{RESET}")
-    
+    parts.append(q5_display)
+    parts.append(q7_display)
+    parts.append(plan_display)
+    if ver_display:
+        parts.append(ver_display)
+
     print(SEP.join(parts), flush=True)
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--update-cache":
-        run_background_update()
-    else:
-        main()
+    main()
