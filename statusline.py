@@ -12,7 +12,7 @@ import ssl
 import subprocess
 from datetime import datetime, timezone
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 # Auto-update configuration
 UPDATE_URL = os.environ.get(
@@ -302,18 +302,43 @@ def format_reset(bucket):
         return f"{days}d {rem_h}h" if rem_h else f"{days}d"
     return f"{hours}h {mins}m" if mins else f"{hours}h"
 
-def get_quota_bucket(quota, window_type, is_gemini):
+def is_gemini4_key(key):
+    k = str(key).lower()
+    return any(tag in k for tag in ("argon", "gemini-4", "gemini4"))
+
+def get_quota_bucket(quota, window_type, model_name, model_id=""):
     if not quota or not isinstance(quota, dict):
         return None
+
+    model_str = f"{model_id} {model_name}".lower()
+    is_gemini4 = bool(re.search(r"gemini[-_\s]*4|argon", model_str))
+    is_gemini = "gemini" in model_str or is_gemini4
+
+    # 1. Gemini 4 (Argon) separate quota handling
+    if is_gemini4:
+        g4_keys = [k for k in quota if is_gemini4_key(k)]
+        if g4_keys:
+            for k in g4_keys:
+                kl = k.lower()
+                if kl.endswith(f"-{window_type}") or kl == window_type:
+                    return quota[k]
+            # Separate Gemini 4 quota group exists, but this window_type (e.g. 5h) is not applicable
+            return None
+
+    # 2. Standard Gemini vs 3P (Claude/GPT) quota handling
     primary_key = f"{'gemini' if is_gemini else '3p'}-{window_type}"
     if primary_key in quota:
         return quota[primary_key]
-    fallback_key = f"{'3p' if is_gemini else 'gemini'}-{window_type}"
-    if fallback_key in quota:
-        return quota[fallback_key]
+
     for k, v in quota.items():
-        if k.endswith(f"-{window_type}") or k == window_type:
+        if is_gemini4_key(k):
+            continue
+        kl = k.lower()
+        if is_gemini and kl.startswith("gemini-") and kl.endswith(f"-{window_type}"):
             return v
+        if not is_gemini and not kl.startswith("gemini-") and (kl.endswith(f"-{window_type}") or kl == window_type):
+            return v
+
     return None
 
 def format_quota_display(bucket, label):
@@ -349,8 +374,10 @@ def main():
     # 1. Model Name
     model_obj = data.get("model", {})
     if isinstance(model_obj, dict):
-        model_name = model_obj.get("display_name") or model_obj.get("id") or "Unknown"
+        model_id = model_obj.get("id") or ""
+        model_name = model_obj.get("display_name") or model_id or "Unknown"
     else:
+        model_id = ""
         model_name = str(model_obj) or "Unknown"
     model_display = f"{BOLD_WHITE}{model_name}{RESET}"
 
@@ -399,9 +426,8 @@ def main():
 
     # 6. Real-time Quota (directly from agy native stdin payload)
     quota = data.get("quota") or {}
-    is_gemini = "gemini" in model_name.lower()
-    b5 = get_quota_bucket(quota, "5h", is_gemini)
-    b7 = get_quota_bucket(quota, "weekly", is_gemini)
+    b5 = get_quota_bucket(quota, "5h", model_name, model_id)
+    b7 = get_quota_bucket(quota, "weekly", model_name, model_id)
     q5_display = format_quota_display(b5, "5h")
     q7_display = format_quota_display(b7, "7d")
 
