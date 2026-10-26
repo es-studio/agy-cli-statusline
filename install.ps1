@@ -33,9 +33,9 @@ Write-Host "✅ Python found: $pythonCmd" -ForegroundColor Green
 
 # 3. Copy or Download statusline.py
 $statuslineDest = Join-Path $scratchDir "statusline.py"
-$localSource = Join-Path $PSScriptRoot "statusline.py"
+$localSource = if ($PSScriptRoot) { Join-Path $PSScriptRoot "statusline.py" } else { $null }
 
-if ($PSScriptRoot -and (Test-Path $localSource)) {
+if ($localSource -and (Test-Path $localSource)) {
     Write-Host "Copying local statusline.py to $statuslineDest..." -ForegroundColor Gray
     Copy-Item -Path $localSource -Destination $statuslineDest -Force
 } else {
@@ -49,30 +49,38 @@ Write-Host "✅ statusline.py installed." -ForegroundColor Green
 $settingsPath = Join-Path $targetDir "settings.json"
 Write-Host "Configuring settings.json..." -ForegroundColor Gray
 
-$settings = @{}
-if (Test-Path $settingsPath) {
-    try {
-        $content = Get-Content -Path $settingsPath -Raw -Encoding UTF8
-        $settings = $content | ConvertFrom-Json -AsHashtable
-    } catch {
-        $settings = @{}
-    }
-}
-
-if (-not $settings.ContainsKey("statusLine")) {
-    $settings["statusLine"] = @{}
-}
-
 # Format normalized command string with forward slashes for clean JSON
 $normPython = $pythonCmd -replace '\\', '/'
 $normScript = $statuslineDest -replace '\\', '/'
+$statuslineCmd = "$normPython $normScript"
 
-$settings["statusLine"]["type"] = "command"
-$settings["statusLine"]["command"] = "$normPython $normScript"
-$settings["statusLine"]["enabled"] = $true
+& $pythonCmd -c @"
+import json, os
 
-$newJson = $settings | ConvertTo-Json -Depth 10
-[System.IO.File]::WriteAllText($settingsPath, $newJson, [System.Text.Encoding]::UTF8)
+path = r'''$settingsPath'''
+cmd = r'''$statuslineCmd'''
+
+data = {}
+if os.path.exists(path):
+    try:
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+
+if not isinstance(data, dict):
+    data = {}
+
+if 'statusLine' not in data or not isinstance(data['statusLine'], dict):
+    data['statusLine'] = {}
+
+data['statusLine']['type'] = 'command'
+data['statusLine']['command'] = cmd
+data['statusLine']['enabled'] = True
+
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+"@
 
 Write-Host "✅ Statusline configuration saved to settings.json." -ForegroundColor Green
 Write-Host "🎉 Installation completed successfully!" -ForegroundColor Cyan

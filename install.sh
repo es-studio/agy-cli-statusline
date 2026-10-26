@@ -66,10 +66,14 @@ $PYTHON_BIN -c "
 import json, os
 path = os.path.expanduser('~/.gemini/antigravity-cli/settings.json')
 if os.path.exists(path):
-    with open(path, 'r', encoding='utf-8') as f:
-        try: data = json.load(f)
-        except Exception: data = {}
+    try:
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
 else:
+    data = {}
+if not isinstance(data, dict):
     data = {}
 if 'statusLine' not in data: data['statusLine'] = {}
 data['statusLine']['type'] = 'command'
