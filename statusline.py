@@ -428,7 +428,7 @@ def main():
     quota = data.get("quota") or {}
     b5 = get_quota_bucket(quota, "5h", model_name, model_id)
     b7 = get_quota_bucket(quota, "weekly", model_name, model_id)
-    q5_display = format_quota_display(b5, "5h")
+    q5_display = format_quota_display(b5, "5h") if isinstance(b5, dict) and b5.get("remaining_fraction") is not None else ""
     q7_display = format_quota_display(b7, "7d")
 
     # 7. Plan Tier & Version
@@ -446,7 +446,8 @@ def main():
     parts.append(tokens_display)
     parts.append(ctx_display)
     parts.append(tasks_display)
-    parts.append(q5_display)
+    if q5_display:
+        parts.append(q5_display)
     parts.append(q7_display)
     parts.append(plan_display)
     if ver_display:
