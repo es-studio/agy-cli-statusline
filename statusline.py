@@ -19,7 +19,7 @@ UPDATE_URL = os.environ.get(
     "AGY_STATUSLINE_URL",
     "https://raw.githubusercontent.com/es-studio/agy-cli-statusline/main/statusline.py"
 )
-CHECK_INTERVAL_SECONDS = int(os.environ.get("AGY_STATUSLINE_CHECK_INTERVAL", 12 * 3600))
+CHECK_INTERVAL_SECONDS = int(os.environ.get("AGY_STATUSLINE_CHECK_INTERVAL", 24 * 3600))
 AUTO_UPDATE_ENABLED = os.environ.get("AGY_STATUSLINE_AUTO_UPDATE", "1").lower() not in ("0", "false", "no", "off")
 
 # ANSI Color Codes

@@ -74,7 +74,7 @@ curl -sL https://raw.githubusercontent.com/es-studio/agy-cli-statusline/main/ins
 
 ### Seamless Background Auto-Update
 - **Zero Terminal Latency**: Statusline rendering is never blocked by network calls. Update checks run in a detached background process with zero window popup (`DETACHED_PROCESS`).
-- **Throttled Checks**: By default, checks run once every 12 hours.
+- **Throttled Checks**: By default, checks run once every 24 hours (1 day).
 - **Safety Checks**: Downloads are validated for Python syntax integrity (`compile()`) and compared using semantic versioning to prevent accidental downgrades or corrupted files.
 - **Atomic Replace**: Files are replaced atomically (`os.replace`) to ensure crash resistance.
 
@@ -99,7 +99,7 @@ python statusline.py --help
 | Environment Variable | Default | Description |
 | :--- | :--- | :--- |
 | `AGY_STATUSLINE_AUTO_UPDATE` | `1` | Set to `0` to disable background auto-updates |
-| `AGY_STATUSLINE_CHECK_INTERVAL` | `43200` (12h) | Interval in seconds between auto-update checks |
+| `AGY_STATUSLINE_CHECK_INTERVAL` | `86400` (24h) | Interval in seconds between auto-update checks |
 | `AGY_STATUSLINE_URL` | *main branch raw URL* | Custom source URL for updates |
 
 ---
