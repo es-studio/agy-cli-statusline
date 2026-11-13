@@ -12,7 +12,7 @@ import ssl
 import subprocess
 from datetime import datetime, timezone
 
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 
 # Auto-update configuration
 UPDATE_URL = os.environ.get(
@@ -302,27 +302,26 @@ def format_reset(bucket):
         return f"{days}d {rem_h}h" if rem_h else f"{days}d"
     return f"{hours}h {mins}m" if mins else f"{hours}h"
 
-def is_gemini4_key(key):
-    k = str(key).lower()
-    return any(tag in k for tag in ("argon", "gemini-4", "gemini4"))
+def is_argon_key(key):
+    return "argon" in str(key).lower()
 
 def get_quota_bucket(quota, window_type, model_name, model_id=""):
     if not quota or not isinstance(quota, dict):
         return None
 
     model_str = f"{model_id} {model_name}".lower()
-    is_gemini4 = bool(re.search(r"gemini[-_\s]*4|argon", model_str))
-    is_gemini = "gemini" in model_str or is_gemini4
+    is_argon = "argon" in model_str
+    is_gemini = "gemini" in model_str or is_argon
 
-    # 1. Gemini 4 (Argon) separate quota handling
-    if is_gemini4:
-        g4_keys = [k for k in quota if is_gemini4_key(k)]
-        if g4_keys:
-            for k in g4_keys:
+    # 1. Argon separate quota handling
+    if is_argon:
+        argon_keys = [k for k in quota if is_argon_key(k)]
+        if argon_keys:
+            for k in argon_keys:
                 kl = k.lower()
                 if kl.endswith(f"-{window_type}") or kl == window_type:
                     return quota[k]
-            # Separate Gemini 4 quota group exists, but this window_type (e.g. 5h) is not applicable
+            # Separate Argon quota group exists, but this window_type (e.g. 5h) is not applicable
             return None
 
     # 2. Standard Gemini vs 3P (Claude/GPT) quota handling
@@ -331,7 +330,7 @@ def get_quota_bucket(quota, window_type, model_name, model_id=""):
         return quota[primary_key]
 
     for k, v in quota.items():
-        if is_gemini4_key(k):
+        if is_argon_key(k):
             continue
         kl = k.lower()
         if is_gemini and kl.startswith("gemini-") and kl.endswith(f"-{window_type}"):
